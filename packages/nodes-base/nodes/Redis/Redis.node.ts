@@ -14,6 +14,7 @@ import { NodeOperationError } from 'n8n-workflow';
 
 import { set } from 'lodash';
 import redis from 'redis';
+type RedisClient = redis.RedisClientType<redis.RedisModules, redis.RedisFunctions, redis.RedisScripts>;
 
 import util from 'util';
 
@@ -495,31 +496,65 @@ export class Redis implements INodeType {
 				credential: ICredentialsDecrypted,
 			): Promise<INodeCredentialTestResult> {
 				const credentials = credential.data as ICredentialDataDecryptedObject;
-				const redisOptions: redis.ClientOpts = {
-					host: credentials.host as string,
-					port: credentials.port as number,
-					db: credentials.database as number,
-				};
+				// const redisOptions: redis.ClientOpts = {
+				// 	host: credentials.host as string,
+				// 	port: credentials.port as number,
+				// 	db: credentials.database as number,
+				// 	tls: {},
+				// };
+				//
+				// if (credentials.password) {
+				// 	redisOptions.password = credentials.password as string;
+				// }
 
-				if (credentials.password) {
-					redisOptions.password = credentials.password as string;
-				}
 				try {
-					const client = redis.createClient(redisOptions);
+					const client = redis.createClient({
+						socket: {
+							host: credentials.host as string,
+							port: credentials.port as number,
+							tls: true,
+						},
+						database: credentials.database as number,
+					});
+
+					// const client = redis.createCluster({
+					// 	rootNodes: [
+					// 		{
+					// 			url: `redis://${redisOptions.host}:${redisOptions.port}`,
+					// 		},
+					// 	],
+					// 	useReplicas: true,
+					// 	defaults: {
+					// 		database: redisOptions.db,
+					// 		socket: { tls: true },
+					// 	},
+					// });
+
+					client.on('error', async (err) => {
+						client.quit();
+						throw err;
+					});
+
+					// await client.connect();
+					// await client.ping();
 
 					await new Promise((resolve, reject): any => {
 						client.on('connect', async () => {
-							client.ping('ping', (error, pong) => {
-								if (error) reject(error);
-								resolve(pong);
-								client.quit();
-							});
+							client.ping();
+							// client.ping('ping', (error, pong) => {
+							// 	if (error) reject(error);
+							// 	resolve(pong);
+							// 	client.quit();
+							// });
 						});
 						client.on('error', async (err) => {
 							client.quit();
 							reject(err);
 						});
+
+						client.connect();
 					});
+
 				} catch (error) {
 					return {
 						status: 'Error',
@@ -576,7 +611,7 @@ export class Redis implements INodeType {
 			return returnData;
 		}
 
-		async function getValue(client: redis.RedisClient, keyName: string, type?: string) {
+		async function getValue(client: RedisClient, keyName: string, type?: string) {
 			if (type === undefined || type === 'automatic') {
 				// Request the type first
 				const clientType = util.promisify(client.type).bind(client);
@@ -587,19 +622,19 @@ export class Redis implements INodeType {
 				const clientGet = util.promisify(client.get).bind(client);
 				return clientGet(keyName);
 			} else if (type === 'hash') {
-				const clientHGetAll = util.promisify(client.hgetall).bind(client);
+				const clientHGetAll = util.promisify(client.hGetAll).bind(client);
 				return clientHGetAll(keyName);
 			} else if (type === 'list') {
-				const clientLRange = util.promisify(client.lrange).bind(client);
+				const clientLRange = util.promisify(client.lRange).bind(client);
 				return clientLRange(keyName, 0, -1);
 			} else if (type === 'sets') {
-				const clientSMembers = util.promisify(client.smembers).bind(client);
+				const clientSMembers = util.promisify(client.sMembers).bind(client);
 				return clientSMembers(keyName);
 			}
 		}
 
 		const setValue = async (
-			client: redis.RedisClient,
+			client: RedisClient,
 			keyName: string,
 			value: string | number | object | string[] | number[],
 			expire: boolean,
@@ -626,13 +661,13 @@ export class Redis implements INodeType {
 				const clientSet = util.promisify(client.set).bind(client);
 				await clientSet(keyName, value.toString());
 			} else if (type === 'hash') {
-				const clientHset = util.promisify(client.hset).bind(client);
+				const clientHset = util.promisify(client.hSet).bind(client);
 				for (const key of Object.keys(value)) {
 					// @ts-ignore
 					await clientHset(keyName, key, (value as IDataObject)[key]!.toString());
 				}
 			} else if (type === 'list') {
-				const clientLset = util.promisify(client.lset).bind(client);
+				const clientLset = util.promisify(client.lSet).bind(client);
 				for (let index = 0; index < (value as string[]).length; index++) {
 					await clientLset(keyName, index, (value as IDataObject)[index]!.toString());
 				}
@@ -652,17 +687,26 @@ export class Redis implements INodeType {
 			//       Should maybe have a parameter which is JSON.
 			const credentials = await this.getCredentials('redis');
 
-			const redisOptions: redis.ClientOpts = {
-				host: credentials.host as string,
-				port: credentials.port as number,
-				db: credentials.database as number,
-			};
+			// const redisOptions: redis.ClientOpts = {
+			// 	host: credentials.host as string,
+			// 	port: credentials.port as number,
+			// 	db: credentials.database as number,
+			// };
+			//
+			// if (credentials.password) {
+			// 	redisOptions.password = credentials.password as string;
+			// }
+			//
+			// const client = redis.createClient(redisOptions);
 
-			if (credentials.password) {
-				redisOptions.password = credentials.password as string;
-			}
-
-			const client = redis.createClient(redisOptions);
+			const client = redis.createClient({
+				socket: {
+					host: credentials.host as string,
+					port: credentials.port as number,
+					tls: true,
+				},
+				database: credentials.database as number,
+			});
 
 			const operation = this.getNodeParameter('operation', 0);
 
@@ -783,7 +827,7 @@ export class Redis implements INodeType {
 									'propertyName',
 								) as string;
 
-								const action = tail ? client.rpop : client.lpop;
+								const action = tail ? client.rPop : client.lPop;
 								const clientPop = util.promisify(action).bind(client);
 								const value = await clientPop(redisList);
 
@@ -810,6 +854,8 @@ export class Redis implements INodeType {
 					reject(error);
 				}
 			});
+
+			await client.connect();
 		});
 	}
 }

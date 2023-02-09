@@ -63,15 +63,15 @@ export class RedisTrigger implements INodeType {
 	async trigger(this: ITriggerFunctions): Promise<ITriggerResponse> {
 		const credentials = await this.getCredentials('redis');
 
-		const redisOptions: redis.ClientOpts = {
-			host: credentials.host as string,
-			port: credentials.port as number,
-			db: credentials.database as number,
-		};
-
-		if (credentials.password) {
-			redisOptions.password = credentials.password as string;
-		}
+		// const redisOptions: redis.ClientOpts = {
+		// 	host: credentials.host as string,
+		// 	port: credentials.port as number,
+		// 	db: credentials.database as number,
+		// };
+		//
+		// if (credentials.password) {
+		// 	redisOptions.password = credentials.password as string;
+		// }
 
 		const channels = (this.getNodeParameter('channels') as string).split(',');
 
@@ -81,35 +81,64 @@ export class RedisTrigger implements INodeType {
 			throw new NodeOperationError(this.getNode(), 'Channels are mandatory!');
 		}
 
-		const client = redis.createClient(redisOptions);
+		// const client = redis.createClient(redisOptions);
+
+		const client = redis.createClient({
+			socket: {
+				host: credentials.host as string,
+				port: credentials.port as number,
+				tls: true,
+			},
+			database: credentials.database as number,
+		});
+
+		// client.connect();
 
 		const manualTriggerFunction = async () => {
 			await new Promise((resolve, reject) => {
 				client.on('connect', () => {
 					for (const channel of channels) {
-						client.psubscribe(channel);
-					}
-					client.on('pmessage', (pattern: string, channel: string, message: string) => {
-						if (options.jsonParseBody) {
-							try {
-								message = JSON.parse(message);
-							} catch (error) {}
-						}
+						client.pSubscribe(channel, (message, channel) => {
+							if (options.jsonParseBody) {
+								try {
+									message = JSON.parse(message);
+								} catch (error) {}
+							}
 
-						if (options.onlyMessage) {
-							this.emit([this.helpers.returnJsonArray({ message })]);
+							if (options.onlyMessage) {
+								this.emit([this.helpers.returnJsonArray({ message })]);
+								resolve(true);
+								return;
+							}
+
+							this.emit([this.helpers.returnJsonArray({ channel, message })]);
 							resolve(true);
-							return;
-						}
+						});
+					}
+					// client.on('pmessage', (pattern: string, channel: string, message: string) => {
+					// 	if (options.jsonParseBody) {
+					// 		try {
+					// 			message = JSON.parse(message);
+					// 		} catch (error) {}
+					// 	}
+					//
+					// 	if (options.onlyMessage) {
+					// 		this.emit([this.helpers.returnJsonArray({ message })]);
+					// 		resolve(true);
+					// 		return;
+					// 	}
+					//
+					// 	this.emit([this.helpers.returnJsonArray({ channel, message })]);
+					// 	resolve(true);
+					// });
 
-						this.emit([this.helpers.returnJsonArray({ channel, message })]);
-						resolve(true);
-					});
 				});
 
 				client.on('error', (error) => {
 					reject(error);
 				});
+
+				client.connect();
 			});
 		};
 
