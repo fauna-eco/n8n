@@ -517,6 +517,7 @@ export class Redis implements INodeType {
 						database: credentials.database as number,
 					});
 
+
 					// const client = redis.createCluster({
 					// 	rootNodes: [
 					// 		{
@@ -535,7 +536,7 @@ export class Redis implements INodeType {
 						throw err;
 					});
 
-					// await client.connect();
+					await client.connect();
 					// await client.ping();
 
 					await new Promise((resolve, reject): any => {
@@ -551,8 +552,6 @@ export class Redis implements INodeType {
 							client.quit();
 							reject(err);
 						});
-
-						client.connect();
 					});
 
 				} catch (error) {
@@ -708,6 +707,8 @@ export class Redis implements INodeType {
 				database: credentials.database as number,
 			});
 
+			await client.connect();
+
 			const operation = this.getNodeParameter('operation', 0);
 
 			client.on('error', (err: Error) => {
@@ -854,8 +855,6 @@ export class Redis implements INodeType {
 					reject(error);
 				}
 			});
-
-			await client.connect();
 		});
 	}
 }

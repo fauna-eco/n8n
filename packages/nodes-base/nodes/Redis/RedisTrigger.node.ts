@@ -92,7 +92,7 @@ export class RedisTrigger implements INodeType {
 			database: credentials.database as number,
 		});
 
-		// client.connect();
+		await client.connect();
 
 		const manualTriggerFunction = async () => {
 			await new Promise((resolve, reject) => {
@@ -138,7 +138,7 @@ export class RedisTrigger implements INodeType {
 					reject(error);
 				});
 
-				client.connect();
+				// client.connect();
 			});
 		};
 
